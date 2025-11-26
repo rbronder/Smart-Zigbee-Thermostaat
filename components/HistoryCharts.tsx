@@ -1,5 +1,5 @@
 import React from 'react';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, ReferenceLine } from 'recharts';
 import { HistoryDataPoint } from '../types';
 
 interface HistoryChartsProps {
@@ -7,6 +7,11 @@ interface HistoryChartsProps {
 }
 
 export const HistoryCharts: React.FC<HistoryChartsProps> = ({ data }) => {
+  
+  // Find current time index to draw reference line
+  const now = new Date();
+  const currentHourLabel = now.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+
   return (
     <div className="w-full h-full flex flex-col gap-2 relative">
       {/* Temperature Chart */}
@@ -21,9 +26,10 @@ export const HistoryCharts: React.FC<HistoryChartsProps> = ({ data }) => {
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgba(255,255,255,0.1)" />
+            <ReferenceLine x={currentHourLabel} stroke="white" strokeOpacity={0.5} strokeDasharray="3 3" />
             <XAxis 
               dataKey="time" 
-              interval={1} // Show every 2nd label approx (2h)
+              interval={2} 
               tick={{fill: 'rgba(255,255,255,0.4)', fontSize: 10}} 
               tickLine={false}
               axisLine={false}
@@ -34,11 +40,13 @@ export const HistoryCharts: React.FC<HistoryChartsProps> = ({ data }) => {
                 contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '12px' }}
                 itemStyle={{ padding: 0 }}
                 labelStyle={{ marginBottom: '4px', color: '#aaa' }}
-                formatter={(value: number) => [value.toFixed(1), '']}
+                formatter={(value: number) => [isNaN(value) ? '-' : value.toFixed(1), '']}
+                // Force tooltip to show Binnen (Indoor) first, then Buiten (Outdoor)
+                itemSorter={(item: any) => item.name === 'Binnen' ? -1 : 1}
             />
             <Legend verticalAlign="top" height={20} iconSize={8} wrapperStyle={{ fontSize: '10px', right: 0, top: 0, color: '#aaa' }}/>
             
-            {/* Outdoor Temp (Line) */}
+            {/* Outdoor Temp (Line) - Rendered first in SVG (back) */}
             <Area 
                 type="monotone" 
                 dataKey="outdoorTemp" 
@@ -47,9 +55,10 @@ export const HistoryCharts: React.FC<HistoryChartsProps> = ({ data }) => {
                 strokeWidth={2}
                 fill="transparent" 
                 dot={false}
+                connectNulls={false}
             />
             
-            {/* Indoor Temp (Area) */}
+            {/* Indoor Temp (Area) - Rendered second (front) */}
             <Area 
                 type="monotone" 
                 dataKey="temp" 
@@ -58,6 +67,7 @@ export const HistoryCharts: React.FC<HistoryChartsProps> = ({ data }) => {
                 strokeWidth={3}
                 fillOpacity={1} 
                 fill="url(#colorTemp)" 
+                connectNulls={false}
             />
           </AreaChart>
         </ResponsiveContainer>
@@ -75,32 +85,39 @@ export const HistoryCharts: React.FC<HistoryChartsProps> = ({ data }) => {
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgba(255,255,255,0.1)" />
+            <ReferenceLine x={currentHourLabel} stroke="white" strokeOpacity={0.5} strokeDasharray="3 3" />
             <XAxis dataKey="time" hide />
             <YAxis domain={[0, 100]} tick={{fill: 'rgba(255,255,255,0.3)', fontSize: 10}} tickLine={false} axisLine={false} />
             <Tooltip 
                  contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '12px' }}
-                 formatter={(value: number) => [value.toFixed(0), '']}
+                 formatter={(value: number) => [isNaN(value) ? '-' : value.toFixed(0), '']}
+                 // Force tooltip to show Binnen first
+                 itemSorter={(item: any) => item.name === 'Binnen' ? -1 : 1}
             />
             
             {/* Outdoor Hum (Line) */}
              <Area 
                 type="monotone" 
                 dataKey="outdoorHumidity" 
+                name="Buiten"
                 stroke="#94a3b8" 
                 strokeWidth={1}
                 strokeDasharray="4 4"
                 fill="transparent" 
                 dot={false}
+                connectNulls={false}
             />
 
             {/* Indoor Hum (Area) */}
             <Area 
                 type="monotone" 
                 dataKey="humidity" 
+                name="Binnen"
                 stroke="#3b82f6" 
                 strokeWidth={2}
                 fillOpacity={1} 
                 fill="url(#colorHum)" 
+                connectNulls={false}
             />
           </AreaChart>
         </ResponsiveContainer>

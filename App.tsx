@@ -16,7 +16,8 @@ import {
   ChevronDown, 
   Droplets,
   Umbrella,
-  WifiOff
+  WifiOff,
+  Target
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -31,6 +32,10 @@ const App: React.FC = () => {
   
   // Logic Debug Info
   const [debugLogic, setDebugLogic] = useState<{lastHeat: string, reason: string}>({ lastHeat: 'Nog niet actief', reason: 'Starten...' });
+
+  // Display State (View vs Edit Mode)
+  const [isAdjusting, setIsAdjusting] = useState(false);
+  const adjustTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // HA Connection State
   const [haConnected, setHaConnected] = useState(false);
@@ -110,10 +115,16 @@ const App: React.FC = () => {
   const isDragging = useRef<boolean>(false);
 
   // Derived State
-  const displayedCurrentTemp = currentRawTemp + tempCalibration;
+  const currentCorrectedTemp = currentRawTemp + tempCalibration;
+  
+  // Display Logic: 
+  // If Adjusting -> Big Number = Target, Small = Current
+  // If Normal    -> Big Number = Current, Small = Target
+  const bigNumberValue = isAdjusting ? targetTemp : currentCorrectedTemp;
+  const smallNumberValue = isAdjusting ? currentCorrectedTemp : targetTemp;
+  const smallNumberLabel = isAdjusting ? 'Nu' : 'Doel';
 
   // Function to process HA history data into Recharts format
-  // Now handles up to 4 arrays: IndoorT, IndoorH, OutdoorT, OutdoorH
   const processHistoryData = (rawData: any[]) => {
       if (!rawData || rawData.length === 0) return;
 
@@ -124,31 +135,57 @@ const App: React.FC = () => {
 
       const processed: HistoryDataPoint[] = [];
       const now = new Date();
-      
-      for (let i = 23; i >= 0; i--) {
-          const t = new Date(now.getTime() - i * 60 * 60 * 1000);
-          const timeLabel = t.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+      // Start of today 00:00
+      const startOfDay = new Date(now);
+      startOfDay.setHours(0, 0, 0, 0);
+
+      // Create slots for 00:00 to 23:00
+      for (let i = 0; i < 24; i++) {
+          const slotTime = new Date(startOfDay.getTime() + i * 60 * 60 * 1000);
+          const timeLabel = slotTime.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+          const hourEndIso = new Date(slotTime.getTime() + 60*60*1000).toISOString();
           
-          const hourEnd = new Date(t.getTime() + 60*60*1000).toISOString();
-          
-          const getLastVal = (arr: any[], defaultVal: number, lastKnown: number) => {
-              const entry = arr.filter((d: any) => d.last_updated <= hourEnd).pop();
-              const val = entry ? parseFloat(entry.state) : NaN;
-              return isNaN(val) ? lastKnown : val;
+          // If slot is in the future, push nulls (or handle in component to hide)
+          if (slotTime > now) {
+             processed.push({
+                 time: timeLabel,
+                 temp: NaN, 
+                 humidity: NaN, 
+                 outdoorTemp: NaN, 
+                 outdoorHumidity: NaN
+             } as any); 
+             continue;
           }
 
-          // Use last known value if current bucket is empty, else default
-          const lastPt = processed.length > 0 ? processed[processed.length - 1] : null;
+          const getLastVal = (arr: any[]) => {
+              // Find the latest update strictly before or within this hour slot
+              // Note: HA API returns array sorted by last_updated.
+              // We find the last entry that is <= hourEndIso
+              let lastVal = NaN;
+              // Iterate backwards or use findLast if available, else filter/pop
+              // Simple approach: Filter entries before hourEnd
+              const validEntries = arr.filter((d: any) => d.last_updated <= hourEndIso);
+              if (validEntries.length > 0) {
+                 const val = parseFloat(validEntries[validEntries.length - 1].state);
+                 if (!isNaN(val)) lastVal = val;
+              }
+              return lastVal;
+          }
+
+          // Use the last valid value from previous slot if current is NaN (gap filling), 
+          // BUT only if we have passed the start of data.
+          // For visualization, Recharts connects lines if defined properly.
+          // Better: Get raw value.
           
-          const tempVal = getLastVal(tempData, 20, lastPt ? lastPt.temp : 20);
-          const humVal = getLastVal(humData, 50, lastPt ? lastPt.humidity : 50);
-          const outTempVal = getLastVal(outTempData, 10, lastPt && lastPt.outdoorTemp ? lastPt.outdoorTemp : 10);
-          const outHumVal = getLastVal(outHumData, 60, lastPt && lastPt.outdoorHumidity ? lastPt.outdoorHumidity : 60);
+          const tempVal = getLastVal(tempData);
+          const humVal = getLastVal(humData);
+          const outTempVal = getLastVal(outTempData);
+          const outHumVal = getLastVal(outHumData);
 
           processed.push({
               time: timeLabel,
-              temp: tempVal,
-              humidity: humVal,
+              temp: isNaN(tempVal) ? (processed.length > 0 ? processed[processed.length - 1].temp : 20) : tempVal, // Simple fallback
+              humidity: isNaN(humVal) ? (processed.length > 0 ? processed[processed.length - 1].humidity : 45) : humVal,
               outdoorTemp: outTempVal,
               outdoorHumidity: outHumVal
           });
@@ -415,15 +452,28 @@ const App: React.FC = () => {
     lastHeatActiveTime, lastMaintenanceTime
   ]);
 
+  // Temp Interaction Handlers
+  const handleUserInteraction = () => {
+     if (summerMode) return;
+     setIsAdjusting(true);
+     if (adjustTimeoutRef.current) clearTimeout(adjustTimeoutRef.current);
+     
+     adjustTimeoutRef.current = setTimeout(() => {
+         setIsAdjusting(false);
+     }, 3000);
+  };
+
   const adjustTemp = (delta: number) => {
     if (summerMode) return; 
     setTargetTemp(prev => Math.min(30, Math.max(10, Math.round((prev + delta) * 2) / 2)));
+    handleUserInteraction();
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
     if (summerMode) return;
     touchStartX.current = e.touches[0].clientX;
     touchCurrentTemp.current = targetTemp;
+    handleUserInteraction();
   };
 
   const handleTouchMove = (e: React.TouchEvent) => {
@@ -433,6 +483,7 @@ const App: React.FC = () => {
     if (steps !== 0) {
       const newTemp = Math.min(30, Math.max(10, touchCurrentTemp.current + steps));
       setTargetTemp(newTemp);
+      handleUserInteraction();
     }
   };
 
@@ -445,6 +496,7 @@ const App: React.FC = () => {
     isDragging.current = true;
     touchStartX.current = e.clientX;
     touchCurrentTemp.current = targetTemp;
+    handleUserInteraction();
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
@@ -454,6 +506,7 @@ const App: React.FC = () => {
     if (steps !== 0) {
       const newTemp = Math.min(30, Math.max(10, touchCurrentTemp.current + steps));
       setTargetTemp(newTemp);
+      handleUserInteraction();
     }
   };
 
@@ -477,8 +530,12 @@ const App: React.FC = () => {
   return (
     <div className="relative w-full h-[100dvh] overflow-y-auto overflow-x-hidden flex flex-col font-sans select-none text-white transition-all bg-black">
       
-      <DynamicBackground weather={weather} />
+      {/* Background Layer - Explicit Z-0 */}
+      <div className="fixed inset-0 z-0">
+         <DynamicBackground weather={weather} />
+      </div>
 
+      {/* Content Layer - Z-10 */}
       <main className="relative z-10 flex flex-col items-center p-4 max-w-5xl mx-auto w-full min-h-[100dvh]" style={{ gap: `${verticalSpacing}px` }}>
         
         <header className="w-full flex justify-between items-start drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] shrink-0 pt-2">
@@ -556,11 +613,11 @@ const App: React.FC = () => {
                             <div className="flex flex-col items-center flex-1 pointer-events-none">
                                 <div className="relative flex justify-center items-baseline">
                                     <AnimatedNumber 
-                                    value={targetTemp} 
-                                    className="text-[6rem] md:text-[8rem] leading-none font-bold tracking-tighter text-white drop-shadow-2xl font-mono tabular-nums"
+                                        value={bigNumberValue} 
+                                        className={`text-[6rem] md:text-[8rem] leading-none font-bold tracking-tighter drop-shadow-2xl font-mono tabular-nums transition-colors duration-300 ${isAdjusting ? 'text-orange-200' : 'text-white'}`}
                                     />
                                     <span className="text-4xl md:text-5xl text-white/60 font-light ml-1 relative -top-8 md:-top-12">°C</span>
-                                    {isHeating && (
+                                    {isHeating && !isAdjusting && (
                                         <Flame 
                                             className="absolute -right-8 md:-right-12 top-1/2 -translate-y-1/2 text-orange-500 animate-bounce drop-shadow-[0_0_10px_rgba(249,115,22,0.8)]" 
                                             size={40} 
@@ -570,9 +627,12 @@ const App: React.FC = () => {
                                 </div>
                                 
                                 <div className="flex gap-3 md:gap-6 mt-2 md:mt-4">
-                                    <div className="px-4 py-2 rounded-xl flex items-center gap-2 backdrop-blur-md border border-white/10 shadow-lg" style={buttonStyle}>
-                                        <span className="text-xs text-gray-300 uppercase font-bold tracking-wider">Nu</span>
-                                        <span className="text-2xl font-bold text-white">{displayedCurrentTemp.toFixed(1)}°</span>
+                                    {/* Small Pill - Switches content */}
+                                    <div className={`px-4 py-2 rounded-xl flex items-center gap-2 backdrop-blur-md border shadow-lg transition-colors duration-300 ${isAdjusting ? 'border-orange-500/50 bg-orange-500/10' : 'border-white/10 bg-white/5'}`} >
+                                        {isAdjusting ? <Target size={16} className="text-orange-400"/> : <span className="text-xs text-gray-300 uppercase font-bold tracking-wider">{smallNumberLabel}</span>}
+                                        <span className={`text-2xl font-bold ${isAdjusting ? 'text-orange-200' : 'text-white'}`}>
+                                            {smallNumberValue.toFixed(1)}°
+                                        </span>
                                     </div>
                                     <div className="px-4 py-2 rounded-xl flex items-center gap-2 backdrop-blur-md border border-blue-500/30 shadow-lg" style={{ backgroundColor: `rgba(59, 130, 246, ${Math.max(0.1, boxTransparency / 300)})` }}>
                                         <Droplets size={20} className="text-blue-400 fill-blue-400/20" />

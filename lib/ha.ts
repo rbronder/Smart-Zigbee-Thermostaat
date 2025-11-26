@@ -1,5 +1,4 @@
 import { 
-  getAuth, 
   createConnection, 
   subscribeEntities, 
   callService,
@@ -23,7 +22,7 @@ function createLongLivedTokenAuth(url: string, token: string): Auth {
     accessToken: token,
     expired: false,
     refreshAccessToken: async () => '',
-  } as unknown as Auth; // Casting because the library expects a slightly different internal structure for OAuth
+  } as unknown as Auth; 
 }
 
 export class HaService {
@@ -72,6 +71,37 @@ export class HaService {
     await callService(this.connection, domain, service, {
       entity_id: entityId
     });
+  }
+
+  async fetchHistory(url: string, token: string, entityIds: string[]) {
+    try {
+      // Calculate start time (24 hours ago)
+      const startTime = new Date();
+      startTime.setHours(startTime.getHours() - 24);
+      const isoStart = startTime.toISOString();
+
+      // Use REST API for history as it is simpler for bulk data retrieval than WS
+      // Endpoint: /api/history/period/<timestamp>?filter_entity_id=...
+      const filter = entityIds.join(',');
+      const apiUrl = `${url}/api/history/period/${isoStart}?filter_entity_id=${filter}&minimal_response&end_time=${new Date().toISOString()}`;
+
+      const response = await fetch(apiUrl, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`History fetch failed: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data; // Returns array of arrays (one inner array per entity)
+    } catch (error) {
+      console.error("Error fetching history:", error);
+      return [];
+    }
   }
 }
 

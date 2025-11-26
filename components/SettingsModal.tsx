@@ -45,6 +45,9 @@ interface SettingsModalProps {
   // HA Connection
   haSettings: HaSettings;
   setHaSettings: (val: HaSettings) => void;
+  // Status (Read only)
+  haConnected: boolean;
+  batteryLevel: number | null;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ 
@@ -66,7 +69,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   summerTemp, setSummerTemp,
   maintenanceIntervalDays, setMaintenanceIntervalDays,
   maintenanceDurationMins, setMaintenanceDurationMins,
-  haSettings, setHaSettings
+  haSettings, setHaSettings,
+  haConnected,
+  batteryLevel
 }) => {
   const [activeTab, setActiveTab] = useState<'general' | 'layout' | 'schedule' | 'system' | 'connection'>('general');
 
@@ -403,21 +408,36 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white focus:border-cyan-500 outline-none"
                     />
                   </div>
+                  
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">Sensor Batterij Entity ID (Optioneel)</label>
+                    <input 
+                      type="text" 
+                      placeholder="sensor.temperatuur_batterij"
+                      value={haSettings.batteryEntityId || ''}
+                      onChange={(e) => setHaSettings({...haSettings, batteryEntityId: e.target.value})}
+                      className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white focus:border-cyan-500 outline-none"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
           )}
 
-          {/* System Status Mockup (Bottom of General tab) */}
+          {/* System Status (Real Data) */}
           {activeTab === 'general' && (
             <div className="pt-4 border-t border-white/10 space-y-3 mt-6 max-w-xl mx-auto">
               <div className="flex justify-between items-center text-sm">
                   <span className="flex items-center gap-2 text-gray-400"><Wifi size={16} /> Netwerk</span>
-                  <span className="text-green-400 font-medium">Verbonden</span>
+                  <span className={`font-medium ${haConnected ? 'text-green-400' : 'text-red-400'}`}>
+                    {haConnected ? 'Verbonden' : 'Verbroken'}
+                  </span>
               </div>
               <div className="flex justify-between items-center text-sm">
                   <span className="flex items-center gap-2 text-gray-400"><Battery size={16} /> Sensor Batterij</span>
-                  <span className="text-green-400 font-medium">85%</span>
+                  <span className={`font-medium ${!batteryLevel ? 'text-gray-500' : batteryLevel < 20 ? 'text-red-400' : 'text-green-400'}`}>
+                    {batteryLevel !== null ? `${batteryLevel}%` : 'Onbekend'}
+                  </span>
               </div>
             </div>
           )}

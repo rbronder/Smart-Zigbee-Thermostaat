@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ThermostatMode, WeatherState, ScheduleItem, VacationSettings, HaSettings } from './types';
+import { ThermostatMode, WeatherState, ScheduleItem, VacationSettings, HaSettings, HistoryDataPoint } from './types';
 import { MOCK_HISTORY_DATA, DEFAULT_SCHEDULE } from './constants';
 import { DynamicBackground } from './components/DynamicBackground';
 import { BrightnessOverlay } from './components/BrightnessOverlay';
@@ -28,7 +28,11 @@ const App: React.FC = () => {
   const [weather, setWeather] = useState<WeatherState>({ condition: 'cloudy', temp: 12 });
   const [isHeating, setIsHeating] = useState<boolean>(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  
+  // HA Connection State
   const [haConnected, setHaConnected] = useState(false);
+  const [batteryLevel, setBatteryLevel] = useState<number | null>(null);
+  const [historyData, setHistoryData] = useState<HistoryDataPoint[]>(MOCK_HISTORY_DATA);
   
   // Schedule & Vacation
   const [schedule, setSchedule] = useState<ScheduleItem[]>(DEFAULT_SCHEDULE);
@@ -67,7 +71,8 @@ const App: React.FC = () => {
       token: '',
       sensorEntityId: '',
       humidityEntityId: '',
-      switchEntityId: ''
+      switchEntityId: '',
+      batteryEntityId: ''
     };
   });
 
@@ -83,6 +88,46 @@ const App: React.FC = () => {
 
   // Derived State
   const displayedCurrentTemp = currentRawTemp + tempCalibration;
+
+  // Function to process HA history data into Recharts format
+  const processHistoryData = (rawData: any[]) => {
+      // rawData is an array of arrays. Index 0 = first entity requested, Index 1 = second entity.
+      if (!rawData || rawData.length === 0) return;
+
+      const tempData = rawData[0] || [];
+      const humData = rawData[1] || [];
+
+      // Create a map of 24 hours
+      const processed: HistoryDataPoint[] = [];
+      const now = new Date();
+      
+      for (let i = 23; i >= 0; i--) {
+          const t = new Date(now.getTime() - i * 60 * 60 * 1000);
+          const timeLabel = t.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+          
+          // Find the reading closest to this hour (or the last reading before this hour)
+          // Simplified: Filter readings from this hour and average them, or take last known.
+          // Since data is sorted time asc, we find the last entry before the end of this hour slot.
+          const hourEnd = new Date(t.getTime() + 60*60*1000).toISOString();
+          
+          const tempEntry = tempData.filter((d: any) => d.last_updated <= hourEnd).pop();
+          const humEntry = humData.filter((d: any) => d.last_updated <= hourEnd).pop();
+
+          let tempVal = tempEntry ? parseFloat(tempEntry.state) : 0;
+          let humVal = humEntry ? parseFloat(humEntry.state) : 0;
+
+          // Fallback if NaN
+          if (isNaN(tempVal)) tempVal = processed.length > 0 ? processed[processed.length - 1].temp : 20;
+          if (isNaN(humVal)) humVal = processed.length > 0 ? processed[processed.length - 1].humidity : 50;
+
+          processed.push({
+              time: timeLabel,
+              temp: tempVal,
+              humidity: humVal
+          });
+      }
+      setHistoryData(processed);
+  };
 
   // HA Connection & Entity Subscriptions
   useEffect(() => {
@@ -104,19 +149,45 @@ const App: React.FC = () => {
           if (!isNaN(val)) setHumidity(val);
         }
 
+        // Update Battery
+        if (haSettings.batteryEntityId && entities[haSettings.batteryEntityId]) {
+          const val = parseFloat(entities[haSettings.batteryEntityId].state);
+          if (!isNaN(val)) setBatteryLevel(val);
+        }
+
         // Update Switch State (Feedback)
         if (haSettings.switchEntityId && entities[haSettings.switchEntityId]) {
           const state = entities[haSettings.switchEntityId].state;
           setIsHeating(state === 'on');
         }
       });
+
+      // Initial History Fetch
+      if (haSettings.sensorEntityId) {
+          const idsToFetch = [haSettings.sensorEntityId];
+          if (haSettings.humidityEntityId) idsToFetch.push(haSettings.humidityEntityId);
+          
+          const history = await haService.fetchHistory(haSettings.url, haSettings.token, idsToFetch);
+          processHistoryData(history);
+      }
     };
 
     initHa();
 
+    // Poll history every 15 minutes
+    const historyInterval = setInterval(async () => {
+        if (haConnected && haSettings.sensorEntityId) {
+            const idsToFetch = [haSettings.sensorEntityId];
+            if (haSettings.humidityEntityId) idsToFetch.push(haSettings.humidityEntityId);
+            const history = await haService.fetchHistory(haSettings.url, haSettings.token, idsToFetch);
+            processHistoryData(history);
+        }
+    }, 15 * 60 * 1000);
+
     return () => {
       haService.disconnect();
       setHaConnected(false);
+      clearInterval(historyInterval);
     };
   }, [haSettings]);
 
@@ -498,7 +569,7 @@ const App: React.FC = () => {
                 className={`w-full rounded-2xl border p-4 shrink-0 transition-all duration-300 overflow-hidden ${borderClass}`}
                 style={{ ...boxStyle, height: `${graphHeight}px` }}
             >
-                <HistoryCharts data={MOCK_HISTORY_DATA} />
+                <HistoryCharts data={haConnected ? historyData : MOCK_HISTORY_DATA} />
             </div>
         )}
 
@@ -549,6 +620,8 @@ const App: React.FC = () => {
         setMaintenanceDurationMins={setMaintenanceDurationMins}
         haSettings={haSettings}
         setHaSettings={setHaSettings}
+        haConnected={haConnected}
+        batteryLevel={batteryLevel}
       />
       
       {!haConnected && haSettings.url && (

@@ -37,7 +37,8 @@ export interface HaSettings {
   sensorEntityId: string;
   humidityEntityId: string;
   switchEntityId: string;
-  batteryEntityId: string; // New field
+  batteryEntityId: string;
+  outdoorTempEntityId: string; // New field for external weather station
 }
 
 export interface HaEntityState {

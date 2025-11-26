@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Sun, Battery, Wifi, Clock, Layers, Move, Maximize, ArrowUpDown, GripHorizontal, Palette, LayoutDashboard, CalendarClock, Settings2, ThermometerSnowflake, Wrench, Snowflake, Moon, Link, Database } from 'lucide-react';
+import { X, Sun, Battery, Wifi, Clock, Layers, Move, Maximize, ArrowUpDown, GripHorizontal, Palette, LayoutDashboard, CalendarClock, Settings2, ThermometerSnowflake, Wrench, Snowflake, Moon, Link, Database, Info, Activity } from 'lucide-react';
 import { ScheduleTab } from './ScheduleSettings';
 import { ScheduleItem, VacationSettings, HaSettings } from '../types';
 
@@ -48,6 +48,13 @@ interface SettingsModalProps {
   // Status (Read only)
   haConnected: boolean;
   batteryLevel: number | null;
+  // Debug info passed from App
+  debugInfo?: {
+    lastHeat: string;
+    reason: string;
+    activeTarget: number;
+    currentRaw: number;
+  };
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ 
@@ -71,7 +78,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   maintenanceDurationMins, setMaintenanceDurationMins,
   haSettings, setHaSettings,
   haConnected,
-  batteryLevel
+  batteryLevel,
+  debugInfo
 }) => {
   const [activeTab, setActiveTab] = useState<'general' | 'layout' | 'schedule' | 'system' | 'connection'>('general');
 
@@ -245,6 +253,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {activeTab === 'system' && (
              <div className="space-y-8 max-w-xl mx-auto">
+
+               {/* Debug / Status Block */}
+               <div className="bg-black/40 p-4 rounded-xl border border-white/10">
+                 <h4 className="text-white font-medium mb-2 flex items-center gap-2">
+                    <Activity size={18} className="text-green-400"/> Status & Diagnose
+                  </h4>
+                  <div className="text-xs font-mono space-y-1 text-gray-300">
+                    <div className="flex justify-between">
+                      <span>Laatst gestookt:</span>
+                      <span>{debugInfo?.lastHeat || 'Onbekend'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Huidige meting (ongecorrigeerd):</span>
+                      <span>{debugInfo?.currentRaw.toFixed(2)} °C</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Calibratie:</span>
+                      <span>{tempCalibration > 0 ? '+' : ''}{tempCalibration} °C</span>
+                    </div>
+                    <div className="flex justify-between border-t border-white/10 pt-1 mt-1 font-bold text-white">
+                      <span>Doel Temperatuur:</span>
+                      <span>{debugInfo?.activeTarget.toFixed(1)} °C</span>
+                    </div>
+                    <div className="mt-2 p-2 bg-gray-800 rounded text-blue-200">
+                      <strong>Logica:</strong> {debugInfo?.reason || 'Wachten op data...'}
+                    </div>
+                  </div>
+               </div>
                
                {/* Hysteresis */}
                <div className="bg-gray-800/50 p-4 rounded-xl border border-white/5">
@@ -376,49 +412,68 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                   <div className="h-px bg-white/5 my-4"></div>
 
-                  <div>
-                    <label className="block text-xs font-medium text-gray-400 mb-1">Temperatuursensor Entity ID</label>
-                    <input 
-                      type="text" 
-                      placeholder="sensor.woonkamer_temperatuur"
-                      value={haSettings.sensorEntityId}
-                      onChange={(e) => setHaSettings({...haSettings, sensorEntityId: e.target.value})}
-                      className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white focus:border-cyan-500 outline-none"
-                    />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-xs font-medium text-gray-400 mb-1">Temperatuursensor ID</label>
+                        <input 
+                        type="text" 
+                        placeholder="sensor.woonkamer_temperatuur"
+                        value={haSettings.sensorEntityId}
+                        onChange={(e) => setHaSettings({...haSettings, sensorEntityId: e.target.value})}
+                        className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white focus:border-cyan-500 outline-none"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-medium text-gray-400 mb-1">Luchtvochtigheid ID</label>
+                        <input 
+                        type="text" 
+                        placeholder="sensor.woonkamer_vocht"
+                        value={haSettings.humidityEntityId}
+                        onChange={(e) => setHaSettings({...haSettings, humidityEntityId: e.target.value})}
+                        className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white focus:border-cyan-500 outline-none"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-medium text-gray-400 mb-1">CV Ketel Schakelaar ID</label>
+                        <input 
+                        type="text" 
+                        placeholder="switch.cv_ketel"
+                        value={haSettings.switchEntityId}
+                        onChange={(e) => setHaSettings({...haSettings, switchEntityId: e.target.value})}
+                        className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white focus:border-cyan-500 outline-none"
+                        />
+                    </div>
+                    
+                    <div>
+                        <label className="block text-xs font-medium text-gray-400 mb-1">Sensor Batterij ID</label>
+                        <input 
+                        type="text" 
+                        placeholder="sensor.temp_batterij"
+                        value={haSettings.batteryEntityId || ''}
+                        onChange={(e) => setHaSettings({...haSettings, batteryEntityId: e.target.value})}
+                        className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white focus:border-cyan-500 outline-none"
+                        />
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-medium text-gray-400 mb-1">Luchtvochtigheid Entity ID (Optioneel)</label>
-                    <input 
-                      type="text" 
-                      placeholder="sensor.woonkamer_luchtvochtigheid"
-                      value={haSettings.humidityEntityId}
-                      onChange={(e) => setHaSettings({...haSettings, humidityEntityId: e.target.value})}
-                      className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white focus:border-cyan-500 outline-none"
-                    />
+                  <div className="pt-2 border-t border-white/5">
+                     <label className="block text-xs font-medium text-gray-400 mb-1 flex items-center gap-2">
+                        <Sun size={12}/> Buitentemperatuur Sensor ID (Optioneel)
+                     </label>
+                     <input 
+                        type="text" 
+                        placeholder="sensor.buiten_temperatuur (laat leeg voor internet weer)"
+                        value={haSettings.outdoorTempEntityId || ''}
+                        onChange={(e) => setHaSettings({...haSettings, outdoorTempEntityId: e.target.value})}
+                        className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white focus:border-cyan-500 outline-none"
+                     />
+                     <p className="text-[10px] text-gray-500 mt-1">
+                        Indien ingevuld, wordt deze waarde gebruikt in plaats van de weer-API.
+                     </p>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-medium text-gray-400 mb-1">CV Ketel Switch Entity ID</label>
-                    <input 
-                      type="text" 
-                      placeholder="switch.cv_ketel"
-                      value={haSettings.switchEntityId}
-                      onChange={(e) => setHaSettings({...haSettings, switchEntityId: e.target.value})}
-                      className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white focus:border-cyan-500 outline-none"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-xs font-medium text-gray-400 mb-1">Sensor Batterij Entity ID (Optioneel)</label>
-                    <input 
-                      type="text" 
-                      placeholder="sensor.temperatuur_batterij"
-                      value={haSettings.batteryEntityId || ''}
-                      onChange={(e) => setHaSettings({...haSettings, batteryEntityId: e.target.value})}
-                      className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white focus:border-cyan-500 outline-none"
-                    />
-                  </div>
                 </div>
               </div>
             </div>

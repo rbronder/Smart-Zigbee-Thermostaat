@@ -29,10 +29,31 @@ const App: React.FC = () => {
   const [isHeating, setIsHeating] = useState<boolean>(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   
+  // Logic Debug Info
+  const [debugLogic, setDebugLogic] = useState<{lastHeat: string, reason: string}>({ lastHeat: 'Nog niet actief', reason: 'Starten...' });
+
   // HA Connection State
   const [haConnected, setHaConnected] = useState(false);
   const [batteryLevel, setBatteryLevel] = useState<number | null>(null);
   const [historyData, setHistoryData] = useState<HistoryDataPoint[]>(MOCK_HISTORY_DATA);
+  
+  // Maintenance State (Persisted)
+  const [lastMaintenanceTime, setLastMaintenanceTime] = useState<number>(() => {
+      const saved = localStorage.getItem('lastMaintenanceTime');
+      return saved ? parseInt(saved) : Date.now();
+  });
+  const [lastHeatActiveTime, setLastHeatActiveTime] = useState<number>(() => {
+    const saved = localStorage.getItem('lastHeatActiveTime');
+    return saved ? parseInt(saved) : Date.now();
+  });
+
+  useEffect(() => {
+    localStorage.setItem('lastMaintenanceTime', lastMaintenanceTime.toString());
+  }, [lastMaintenanceTime]);
+
+  useEffect(() => {
+    localStorage.setItem('lastHeatActiveTime', lastHeatActiveTime.toString());
+  }, [lastHeatActiveTime]);
   
   // Schedule & Vacation
   const [schedule, setSchedule] = useState<ScheduleItem[]>(DEFAULT_SCHEDULE);
@@ -72,7 +93,8 @@ const App: React.FC = () => {
       sensorEntityId: '',
       humidityEntityId: '',
       switchEntityId: '',
-      batteryEntityId: ''
+      batteryEntityId: '',
+      outdoorTempEntityId: ''
     };
   });
 
@@ -105,10 +127,13 @@ const App: React.FC = () => {
           const t = new Date(now.getTime() - i * 60 * 60 * 1000);
           const timeLabel = t.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
           
-          // Find the reading closest to this hour (or the last reading before this hour)
-          // Simplified: Filter readings from this hour and average them, or take last known.
-          // Since data is sorted time asc, we find the last entry before the end of this hour slot.
+          // Get readings for this hour window
+          const hourStart = new Date(t.getTime()).toISOString();
           const hourEnd = new Date(t.getTime() + 60*60*1000).toISOString();
+          
+          // Filter data points that fall somewhat within this hour range (simplified logic)
+          // Since history API returns change events, we look for the last state before the end of this hour
+          // A more robust way is to average, but last known value is often sufficient for home graphs.
           
           const tempEntry = tempData.filter((d: any) => d.last_updated <= hourEnd).pop();
           const humEntry = humData.filter((d: any) => d.last_updated <= hourEnd).pop();
@@ -116,7 +141,7 @@ const App: React.FC = () => {
           let tempVal = tempEntry ? parseFloat(tempEntry.state) : 0;
           let humVal = humEntry ? parseFloat(humEntry.state) : 0;
 
-          // Fallback if NaN
+          // Handle NaN or missing data by carrying over previous value
           if (isNaN(tempVal)) tempVal = processed.length > 0 ? processed[processed.length - 1].temp : 20;
           if (isNaN(humVal)) humVal = processed.length > 0 ? processed[processed.length - 1].humidity : 50;
 
@@ -137,10 +162,21 @@ const App: React.FC = () => {
       await haService.connect(haSettings.url, haSettings.token, (entities) => {
         setHaConnected(true);
 
-        // Update Temp
+        // Update Indoor Temp
         if (haSettings.sensorEntityId && entities[haSettings.sensorEntityId]) {
           const val = parseFloat(entities[haSettings.sensorEntityId].state);
           if (!isNaN(val)) setCurrentRawTemp(val);
+        }
+
+        // Update Outdoor Temp (if configured)
+        if (haSettings.outdoorTempEntityId && entities[haSettings.outdoorTempEntityId]) {
+             const val = parseFloat(entities[haSettings.outdoorTempEntityId].state);
+             if (!isNaN(val)) {
+                 // Determine condition roughly based on state or simply just update temp
+                 // If we had a weather entity, we could map condition. 
+                 // For now, we keep condition from API but override temp.
+                 setWeather(prev => ({...prev, temp: val}));
+             }
         }
 
         // Update Humidity
@@ -159,6 +195,11 @@ const App: React.FC = () => {
         if (haSettings.switchEntityId && entities[haSettings.switchEntityId]) {
           const state = entities[haSettings.switchEntityId].state;
           setIsHeating(state === 'on');
+          
+          // If the switch is ON, update our last heat active timestamp
+          if (state === 'on') {
+            setLastHeatActiveTime(Date.now());
+          }
         }
       });
 
@@ -191,8 +232,9 @@ const App: React.FC = () => {
     };
   }, [haSettings]);
 
-  // Weather API Integration
+  // Weather API Integration (Fallback if no outdoor sensor)
   useEffect(() => {
+    // If user has specific outdoor entity, skip API fetch for temp (still get condition though ideally)
     const fetchWeather = async (lat: number, lon: number) => {
       try {
         const response = await fetch(
@@ -212,38 +254,33 @@ const App: React.FC = () => {
             else condition = 'rain';
           }
 
-          setWeather({
+          // Only update temp if NOT using HA sensor
+          setWeather(prev => ({
             condition,
-            temp: temperature
-          });
+            temp: haSettings.outdoorTempEntityId ? prev.temp : temperature
+          }));
         }
       } catch (error) {
         console.error("Failed to fetch weather data", error);
       }
     };
 
-    if ("geolocation" in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          fetchWeather(position.coords.latitude, position.coords.longitude);
-        },
-        (error) => {
-          console.warn("Geolocation blocked, using default (Amsterdam)", error);
-          fetchWeather(52.3676, 4.9041);
+    const runFetch = () => {
+         if ("geolocation" in navigator) {
+            navigator.geolocation.getCurrentPosition(
+                (p) => fetchWeather(p.coords.latitude, p.coords.longitude),
+                () => fetchWeather(52.3676, 4.9041)
+            );
+        } else {
+            fetchWeather(52.3676, 4.9041);
         }
-      );
-    } else {
-      fetchWeather(52.3676, 4.9041);
-    }
+    };
 
-    const interval = setInterval(() => {
-        if ("geolocation" in navigator) {
-             navigator.geolocation.getCurrentPosition(p => fetchWeather(p.coords.latitude, p.coords.longitude));
-        }
-    }, 1800000);
+    runFetch();
+    const interval = setInterval(runFetch, 1800000); // 30 mins
 
     return () => clearInterval(interval);
-  }, []);
+  }, [haSettings.outdoorTempEntityId]);
 
   // Mode Sync Logic: Automatically update Mode based on Schedule & Vacation
   useEffect(() => {
@@ -264,7 +301,6 @@ const App: React.FC = () => {
       const currentTimeStr = now.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
 
       // Find the currently active schedule item
-      // We need to find the slot that started most recently (time <= now)
       const type = isWeekend ? 'weekend' : 'workday';
       const todaysSlots = schedule
         .filter(s => s.type === type && s.active)
@@ -275,13 +311,10 @@ const App: React.FC = () => {
         if (slot.time <= currentTimeStr) {
           currentSlot = slot;
         } else {
-          break; // Since it's sorted, we can stop
+          break;
         }
       }
       
-      // If no slot found for today yet (early morning before first slot), take the last slot of previous day type? 
-      // For simplicity, let's assume if no slot matches, we keep current mode or default to HOME.
-      // Or we take the last slot of the day (wrapping around).
       if (!currentSlot && todaysSlots.length > 0) {
         currentSlot = todaysSlots[todaysSlots.length - 1];
       }
@@ -299,7 +332,7 @@ const App: React.FC = () => {
     };
 
     updateModeFromSchedule();
-    const interval = setInterval(updateModeFromSchedule, 60000); // Check every minute
+    const interval = setInterval(updateModeFromSchedule, 60000); 
     return () => clearInterval(interval);
   }, [schedule, vacationSettings]);
 
@@ -320,45 +353,86 @@ const App: React.FC = () => {
     }
   }, [vacationSettings]);
 
-  // Heating Simulation Logic (Or Control)
+  // Heating Control Loop (The Brain)
   useEffect(() => {
     const interval = setInterval(() => {
         // Use the calibrated temperature for logic
         const current = currentRawTemp + tempCalibration;
         const activeTarget = summerMode ? summerTemp : targetTemp;
+        const now = Date.now();
+
+        // --- Maintenance Check ---
+        const msInDay = 24 * 60 * 60 * 1000;
+        const maintenanceNeeded = (now - lastHeatActiveTime) > (maintenanceIntervalDays * msInDay);
+        let maintenanceActive = false;
+
+        if (maintenanceNeeded) {
+            // Check if we are currently inside a maintenance run
+            // We define a "run" as: we started maintenance recently, and duration hasn't passed
+            const maintenanceDurationMs = maintenanceDurationMins * 60 * 1000;
+            const timeSinceMaintenanceStart = now - lastMaintenanceTime;
+
+            if (timeSinceMaintenanceStart < maintenanceDurationMs) {
+                // We are in the middle of a maintenance run
+                maintenanceActive = true;
+            } else if (timeSinceMaintenanceStart > maintenanceDurationMs && (now - lastMaintenanceTime) > msInDay) {
+                // It's been a long time, time to trigger a new one?
+                // Actually, if maintenanceNeeded is true, it means normal heating hasn't happened.
+                // So we start a new maintenance run.
+                setLastMaintenanceTime(now);
+                maintenanceActive = true;
+            }
+        }
 
         // Determine desired state
         let shouldHeat = isHeating;
+        let reason = "";
 
-        if (current < activeTarget - hysteresis) {
+        if (maintenanceActive) {
             shouldHeat = true;
+            reason = `Onderhoudsmodus actief (${maintenanceDurationMins} min)`;
+        } else if (current < activeTarget - hysteresis) {
+            shouldHeat = true;
+            reason = `Temperatuur te laag (${current.toFixed(1)} < ${activeTarget - hysteresis})`;
         } else if (current > activeTarget + hysteresis) {
             shouldHeat = false;
+            reason = `Temperatuur bereikt (${current.toFixed(1)} > ${activeTarget + hysteresis})`;
+        } else {
+            reason = isHeating ? "Verwarmen (Binnen marge)" : "Stand-by (Binnen marge)";
         }
 
+        // Update Debug Info
+        setDebugLogic({
+            lastHeat: new Date(lastHeatActiveTime).toLocaleString('nl-NL'),
+            reason: reason
+        });
+
         // If HA is connected, allow the app to be the controller
-        // Note: This makes the app the "brain". If app is closed, logic stops.
         if (haConnected && haSettings.switchEntityId) {
-             // Only send command if state needs to change to prevent flooding
              if (shouldHeat !== isHeating) {
                  haService.setSwitch(haSettings.switchEntityId, shouldHeat);
              }
         } else if (!haConnected) {
-            // Simulation Mode (fallback)
+            // Simulation Mode
             if (shouldHeat) {
                 setCurrentRawTemp(prev => Math.min(prev + 0.05, activeTarget + 1)); 
             } else {
                 setCurrentRawTemp(prev => Math.max(prev - 0.05, 15));
             }
             setIsHeating(shouldHeat);
+            if (shouldHeat) setLastHeatActiveTime(Date.now());
         }
     }, 2000);
 
     return () => clearInterval(interval);
-  }, [targetTemp, currentRawTemp, tempCalibration, hysteresis, summerMode, summerTemp, isHeating, haConnected, haSettings]);
+  }, [
+    targetTemp, currentRawTemp, tempCalibration, hysteresis, summerMode, summerTemp, 
+    isHeating, haConnected, haSettings, maintenanceIntervalDays, maintenanceDurationMins, 
+    lastHeatActiveTime, lastMaintenanceTime
+  ]);
 
   const adjustTemp = (delta: number) => {
-    if (summerMode) return; // Locked
+    if (summerMode) return; 
     setTargetTemp(prev => Math.min(30, Math.max(10, Math.round((prev + delta) * 2) / 2)));
   };
 
@@ -371,11 +445,8 @@ const App: React.FC = () => {
 
   const handleTouchMove = (e: React.TouchEvent) => {
     if (summerMode || touchStartX.current === null) return;
-    
     const diffX = e.touches[0].clientX - touchStartX.current;
-    // Sensitivity: 20px = 0.5 degrees
     const steps = Math.round(diffX / 30) * 0.5; 
-    
     if (steps !== 0) {
       const newTemp = Math.min(30, Math.max(10, touchCurrentTemp.current + steps));
       setTargetTemp(newTemp);
@@ -386,7 +457,7 @@ const App: React.FC = () => {
     touchStartX.current = null;
   };
 
-  // Mouse Handlers for Swipe (Desktop Support)
+  // Mouse Handlers for Swipe
   const handleMouseDown = (e: React.MouseEvent) => {
     if (summerMode) return;
     isDragging.current = true;
@@ -396,11 +467,8 @@ const App: React.FC = () => {
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (summerMode || !isDragging.current || touchStartX.current === null) return;
-    
     const diffX = e.clientX - touchStartX.current;
-    // Sensitivity: 20px = 0.5 degrees
     const steps = Math.round(diffX / 30) * 0.5; 
-    
     if (steps !== 0) {
       const newTemp = Math.min(30, Math.max(10, touchCurrentTemp.current + steps));
       setTargetTemp(newTemp);
@@ -411,7 +479,6 @@ const App: React.FC = () => {
     isDragging.current = false;
     touchStartX.current = null;
   };
-
 
   // Dynamic Styles
   const boxStyle = {
@@ -424,20 +491,19 @@ const App: React.FC = () => {
      backgroundColor: `rgba(255, 255, 255, ${Math.max(0.1, boxTransparency / 200)})`,
   };
   
-  // Clean border when fully transparent
   const borderClass = boxTransparency < 5 ? 'border-transparent' : 'border-white/10';
 
   return (
-    <div className="relative w-full h-screen overflow-hidden flex flex-col font-sans select-none text-white transition-all">
+    <div className="relative w-full h-screen min-h-screen overflow-y-auto overflow-x-hidden flex flex-col font-sans select-none text-white transition-all bg-black">
       
       {/* Background Layer */}
       <DynamicBackground weather={weather} />
 
       {/* Main Content Layer */}
-      <main className="relative z-10 flex-1 flex flex-col items-center p-4 max-w-5xl mx-auto w-full h-full" style={{ gap: `${verticalSpacing}px` }}>
+      <main className="relative z-10 flex flex-col items-center p-4 max-w-5xl mx-auto w-full min-h-screen" style={{ gap: `${verticalSpacing}px` }}>
         
-        {/* Top Bar: Compact Header */}
-        <header className="w-full flex justify-between items-start drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] shrink-0">
+        {/* Top Bar */}
+        <header className="w-full flex justify-between items-start drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] shrink-0 pt-2">
             <div className="flex flex-col">
                 <span className="text-3xl md:text-4xl font-light tracking-tight leading-tight">{new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}</span>
                 <span className="text-sm md:text-lg font-medium opacity-80">{new Date().toLocaleDateString('nl-NL', { weekday: 'long', day: 'numeric', month: 'short' })}</span>
@@ -450,10 +516,10 @@ const App: React.FC = () => {
             </div>
         </header>
 
-        {/* Central Control Unit - Scalable Container */}
-        <div className="w-full flex flex-col items-center justify-center flex-1 min-h-0 relative">
+        {/* Central Control Unit */}
+        <div className="w-full flex flex-col items-center justify-center flex-1 shrink-0 relative py-4">
              <div 
-                className="flex flex-col items-center justify-center w-full h-full transition-transform duration-300 ease-out"
+                className="flex flex-col items-center justify-center w-full h-full transition-transform duration-300 ease-out origin-center"
                 style={{ transform: `scale(${uiScale})` }}
              >
                 {/* Main Thermostat Card */}
@@ -566,7 +632,7 @@ const App: React.FC = () => {
         {/* Bottom Section: Graphs */}
         {graphHeight > 0 && (
             <div 
-                className={`w-full rounded-2xl border p-4 shrink-0 transition-all duration-300 overflow-hidden ${borderClass}`}
+                className={`w-full rounded-2xl border p-4 shrink-0 transition-all duration-300 overflow-hidden mb-6 ${borderClass}`}
                 style={{ ...boxStyle, height: `${graphHeight}px` }}
             >
                 <HistoryCharts data={haConnected ? historyData : MOCK_HISTORY_DATA} />
@@ -622,10 +688,16 @@ const App: React.FC = () => {
         setHaSettings={setHaSettings}
         haConnected={haConnected}
         batteryLevel={batteryLevel}
+        debugInfo={{
+            lastHeat: new Date(lastHeatActiveTime).toLocaleString('nl-NL'),
+            reason: debugLogic.reason,
+            activeTarget: summerMode ? summerTemp : targetTemp,
+            currentRaw: currentRawTemp
+        }}
       />
       
       {!haConnected && haSettings.url && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-red-500/90 text-white px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2">
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-red-500/90 text-white px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 z-50">
             <WifiOff size={16} /> Geen verbinding met Home Assistant
         </div>
       )}

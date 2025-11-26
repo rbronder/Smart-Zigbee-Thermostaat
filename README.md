@@ -57,7 +57,7 @@ Deze applicatie is gebouwd met React. Je kunt hem lokaal draaien of hosten op ee
 Clone deze repository en installeer de afhankelijkheden:
 
 ```bash
-git clone https://github.com/jouw-naam/smart-thermostat.git
+git clone https://github.com/rbronder/smart-thermostat.git
 cd smart-thermostat
 npm install
 ```

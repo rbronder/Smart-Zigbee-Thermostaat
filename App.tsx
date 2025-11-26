@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ThermostatMode, WeatherState, ScheduleItem, VacationSettings } from './types';
+import { ThermostatMode, WeatherState, ScheduleItem, VacationSettings, HaSettings } from './types';
 import { MOCK_HISTORY_DATA, DEFAULT_SCHEDULE } from './constants';
 import { DynamicBackground } from './components/DynamicBackground';
 import { BrightnessOverlay } from './components/BrightnessOverlay';
 import { HistoryCharts } from './components/HistoryCharts';
 import { SettingsModal } from './components/SettingsModal';
 import { AnimatedNumber } from './components/AnimatedNumber';
+import { haService } from './lib/ha';
 import { 
   Flame, 
   Home, 
@@ -14,7 +15,8 @@ import {
   ChevronUp, 
   ChevronDown, 
   Droplets,
-  Umbrella
+  Umbrella,
+  WifiOff
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -26,6 +28,7 @@ const App: React.FC = () => {
   const [weather, setWeather] = useState<WeatherState>({ condition: 'cloudy', temp: 12 });
   const [isHeating, setIsHeating] = useState<boolean>(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [haConnected, setHaConnected] = useState(false);
   
   // Schedule & Vacation
   const [schedule, setSchedule] = useState<ScheduleItem[]>(DEFAULT_SCHEDULE);
@@ -56,6 +59,23 @@ const App: React.FC = () => {
   const [maintenanceIntervalDays, setMaintenanceIntervalDays] = useState(7);
   const [maintenanceDurationMins, setMaintenanceDurationMins] = useState(5);
 
+  // HA Settings
+  const [haSettings, setHaSettings] = useState<HaSettings>(() => {
+    const saved = localStorage.getItem('haSettings');
+    return saved ? JSON.parse(saved) : {
+      url: '',
+      token: '',
+      sensorEntityId: '',
+      humidityEntityId: '',
+      switchEntityId: ''
+    };
+  });
+
+  // Save HA settings when changed
+  useEffect(() => {
+    localStorage.setItem('haSettings', JSON.stringify(haSettings));
+  }, [haSettings]);
+
   // Touch & Mouse Swipe State
   const touchStartX = useRef<number | null>(null);
   const touchCurrentTemp = useRef<number>(targetTemp);
@@ -63,6 +83,42 @@ const App: React.FC = () => {
 
   // Derived State
   const displayedCurrentTemp = currentRawTemp + tempCalibration;
+
+  // HA Connection & Entity Subscriptions
+  useEffect(() => {
+    if (!haSettings.url || !haSettings.token) return;
+
+    const initHa = async () => {
+      await haService.connect(haSettings.url, haSettings.token, (entities) => {
+        setHaConnected(true);
+
+        // Update Temp
+        if (haSettings.sensorEntityId && entities[haSettings.sensorEntityId]) {
+          const val = parseFloat(entities[haSettings.sensorEntityId].state);
+          if (!isNaN(val)) setCurrentRawTemp(val);
+        }
+
+        // Update Humidity
+        if (haSettings.humidityEntityId && entities[haSettings.humidityEntityId]) {
+          const val = parseFloat(entities[haSettings.humidityEntityId].state);
+          if (!isNaN(val)) setHumidity(val);
+        }
+
+        // Update Switch State (Feedback)
+        if (haSettings.switchEntityId && entities[haSettings.switchEntityId]) {
+          const state = entities[haSettings.switchEntityId].state;
+          setIsHeating(state === 'on');
+        }
+      });
+    };
+
+    initHa();
+
+    return () => {
+      haService.disconnect();
+      setHaConnected(false);
+    };
+  }, [haSettings]);
 
   // Weather API Integration
   useEffect(() => {
@@ -193,31 +249,42 @@ const App: React.FC = () => {
     }
   }, [vacationSettings]);
 
-  // Heating Simulation Logic (With Hysteresis and Calibration)
+  // Heating Simulation Logic (Or Control)
   useEffect(() => {
     const interval = setInterval(() => {
         // Use the calibrated temperature for logic
         const current = currentRawTemp + tempCalibration;
         const activeTarget = summerMode ? summerTemp : targetTemp;
 
-        // Hysteresis Logic
+        // Determine desired state
+        let shouldHeat = isHeating;
+
         if (current < activeTarget - hysteresis) {
-            setIsHeating(true);
-            setCurrentRawTemp(prev => Math.min(prev + 0.05, activeTarget + 1)); 
+            shouldHeat = true;
         } else if (current > activeTarget + hysteresis) {
-            setIsHeating(false);
-            setCurrentRawTemp(prev => Math.max(prev - 0.05, 15));
-        } else {
-          if (isHeating) {
-            setCurrentRawTemp(prev => Math.min(prev + 0.02, activeTarget + 1));
-          } else {
-             setCurrentRawTemp(prev => Math.max(prev - 0.02, 15));
-          }
+            shouldHeat = false;
+        }
+
+        // If HA is connected, allow the app to be the controller
+        // Note: This makes the app the "brain". If app is closed, logic stops.
+        if (haConnected && haSettings.switchEntityId) {
+             // Only send command if state needs to change to prevent flooding
+             if (shouldHeat !== isHeating) {
+                 haService.setSwitch(haSettings.switchEntityId, shouldHeat);
+             }
+        } else if (!haConnected) {
+            // Simulation Mode (fallback)
+            if (shouldHeat) {
+                setCurrentRawTemp(prev => Math.min(prev + 0.05, activeTarget + 1)); 
+            } else {
+                setCurrentRawTemp(prev => Math.max(prev - 0.05, 15));
+            }
+            setIsHeating(shouldHeat);
         }
     }, 2000);
 
     return () => clearInterval(interval);
-  }, [targetTemp, currentRawTemp, tempCalibration, hysteresis, summerMode, summerTemp, isHeating]);
+  }, [targetTemp, currentRawTemp, tempCalibration, hysteresis, summerMode, summerTemp, isHeating, haConnected, haSettings]);
 
   const adjustTemp = (delta: number) => {
     if (summerMode) return; // Locked
@@ -480,7 +547,15 @@ const App: React.FC = () => {
         setMaintenanceIntervalDays={setMaintenanceIntervalDays}
         maintenanceDurationMins={maintenanceDurationMins}
         setMaintenanceDurationMins={setMaintenanceDurationMins}
+        haSettings={haSettings}
+        setHaSettings={setHaSettings}
       />
+      
+      {!haConnected && haSettings.url && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-red-500/90 text-white px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2">
+            <WifiOff size={16} /> Geen verbinding met Home Assistant
+        </div>
+      )}
 
     </div>
   );

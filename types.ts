@@ -30,3 +30,17 @@ export interface WeatherState {
   condition: 'sunny' | 'cloudy' | 'rain' | 'night';
   temp: number;
 }
+
+export interface HaSettings {
+  url: string;
+  token: string;
+  sensorEntityId: string;
+  humidityEntityId: string;
+  switchEntityId: string;
+}
+
+export interface HaEntityState {
+  entity_id: string;
+  state: string;
+  attributes: Record<string, any>;
+}

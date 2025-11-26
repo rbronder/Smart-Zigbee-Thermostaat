@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { X, Sun, Battery, Wifi, Clock, Layers, Move, Maximize, ArrowUpDown, GripHorizontal, Palette, LayoutDashboard, CalendarClock, Settings2, ThermometerSnowflake, Wrench, Snowflake, Moon } from 'lucide-react';
+import { X, Sun, Battery, Wifi, Clock, Layers, Move, Maximize, ArrowUpDown, GripHorizontal, Palette, LayoutDashboard, CalendarClock, Settings2, ThermometerSnowflake, Wrench, Snowflake, Moon, Link, Database } from 'lucide-react';
 import { ScheduleTab } from './ScheduleSettings';
-import { ScheduleItem, VacationSettings } from '../types';
+import { ScheduleItem, VacationSettings, HaSettings } from '../types';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -42,6 +42,9 @@ interface SettingsModalProps {
   setMaintenanceIntervalDays: (val: number) => void;
   maintenanceDurationMins: number;
   setMaintenanceDurationMins: (val: number) => void;
+  // HA Connection
+  haSettings: HaSettings;
+  setHaSettings: (val: HaSettings) => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ 
@@ -62,9 +65,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   summerMode, setSummerMode,
   summerTemp, setSummerTemp,
   maintenanceIntervalDays, setMaintenanceIntervalDays,
-  maintenanceDurationMins, setMaintenanceDurationMins
+  maintenanceDurationMins, setMaintenanceDurationMins,
+  haSettings, setHaSettings
 }) => {
-  const [activeTab, setActiveTab] = useState<'general' | 'layout' | 'schedule' | 'system'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'layout' | 'schedule' | 'system' | 'connection'>('general');
 
   if (!isOpen) return null;
 
@@ -103,6 +107,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             className={`flex-1 py-3 px-4 text-sm font-medium flex items-center justify-center gap-2 transition-colors whitespace-nowrap ${activeTab === 'system' ? 'bg-white/10 text-white border-b-2 border-red-500' : 'text-gray-400 hover:text-gray-200'}`}
           >
             <Settings2 size={16} /> Systeem
+          </button>
+          <button 
+            onClick={() => setActiveTab('connection')}
+            className={`flex-1 py-3 px-4 text-sm font-medium flex items-center justify-center gap-2 transition-colors whitespace-nowrap ${activeTab === 'connection' ? 'bg-white/10 text-white border-b-2 border-cyan-500' : 'text-gray-400 hover:text-gray-200'}`}
+          >
+            <Link size={16} /> Connectie
           </button>
         </div>
 
@@ -324,8 +334,78 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                      </div>
                   </div>
                </div>
-
              </div>
+          )}
+
+          {activeTab === 'connection' && (
+            <div className="space-y-6 max-w-xl mx-auto">
+              <div className="bg-gray-800/50 p-4 rounded-xl border border-cyan-500/20">
+                <p className="text-sm text-cyan-200 mb-4 flex gap-2">
+                  <Database size={16} />
+                  Vul hier je Home Assistant gegevens in om Zigbee apparaten uit te lezen.
+                </p>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">Home Assistant URL</label>
+                    <input 
+                      type="text" 
+                      placeholder="http://192.168.1.5:8123"
+                      value={haSettings.url}
+                      onChange={(e) => setHaSettings({...haSettings, url: e.target.value})}
+                      className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white focus:border-cyan-500 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">Long-Lived Access Token</label>
+                    <input 
+                      type="password" 
+                      placeholder="ey..."
+                      value={haSettings.token}
+                      onChange={(e) => setHaSettings({...haSettings, token: e.target.value})}
+                      className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white focus:border-cyan-500 outline-none"
+                    />
+                    <p className="text-[10px] text-gray-500 mt-1">Maak aan in je profiel (helemaal onderaan).</p>
+                  </div>
+
+                  <div className="h-px bg-white/5 my-4"></div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">Temperatuursensor Entity ID</label>
+                    <input 
+                      type="text" 
+                      placeholder="sensor.woonkamer_temperatuur"
+                      value={haSettings.sensorEntityId}
+                      onChange={(e) => setHaSettings({...haSettings, sensorEntityId: e.target.value})}
+                      className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white focus:border-cyan-500 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">Luchtvochtigheid Entity ID (Optioneel)</label>
+                    <input 
+                      type="text" 
+                      placeholder="sensor.woonkamer_luchtvochtigheid"
+                      value={haSettings.humidityEntityId}
+                      onChange={(e) => setHaSettings({...haSettings, humidityEntityId: e.target.value})}
+                      className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white focus:border-cyan-500 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">CV Ketel Switch Entity ID</label>
+                    <input 
+                      type="text" 
+                      placeholder="switch.cv_ketel"
+                      value={haSettings.switchEntityId}
+                      onChange={(e) => setHaSettings({...haSettings, switchEntityId: e.target.value})}
+                      className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white focus:border-cyan-500 outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
 
           {/* System Status Mockup (Bottom of General tab) */}

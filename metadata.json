@@ -1,0 +1,7 @@
+{
+  "name": "Smart Zigbee Thermostat",
+  "description": "A Home Assistant style thermostat interface with dynamic backgrounds, scheduling, and history graphs.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

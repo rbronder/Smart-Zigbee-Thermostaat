@@ -8,6 +8,8 @@ export interface HistoryDataPoint {
   time: string;
   temp: number;
   humidity: number;
+  outdoorTemp?: number;
+  outdoorHumidity?: number;
 }
 
 export interface ScheduleItem {
@@ -27,7 +29,7 @@ export interface VacationSettings {
 }
 
 export interface WeatherState {
-  condition: 'sunny' | 'cloudy' | 'rain' | 'night';
+  condition: 'sunny' | 'cloudy' | 'rain' | 'snow' | 'fog' | 'thunder' | 'night';
   temp: number;
 }
 
@@ -38,7 +40,8 @@ export interface HaSettings {
   humidityEntityId: string;
   switchEntityId: string;
   batteryEntityId: string;
-  outdoorTempEntityId: string; // New field for external weather station
+  outdoorTempEntityId: string;
+  outdoorHumidityEntityId: string; // New field
 }
 
 export interface HaEntityState {

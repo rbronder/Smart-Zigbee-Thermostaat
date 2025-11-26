@@ -1,5 +1,5 @@
 import React from 'react';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import { HistoryDataPoint } from '../types';
 
 interface HistoryChartsProps {
@@ -8,28 +8,52 @@ interface HistoryChartsProps {
 
 export const HistoryCharts: React.FC<HistoryChartsProps> = ({ data }) => {
   return (
-    <div className="w-full h-48 flex flex-col gap-2">
+    <div className="w-full h-full flex flex-col gap-2 relative">
       {/* Temperature Chart */}
-      <div className="flex-1 relative">
-        <h4 className="absolute top-0 left-2 text-xs font-semibold text-orange-200/80 z-10 drop-shadow-md">Temperatuurverloop (24u)</h4>
+      <div className="flex-1 relative min-h-0">
+        <h4 className="absolute top-0 left-2 text-xs font-semibold text-orange-200/80 z-10 drop-shadow-md">Temperatuur (°C)</h4>
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data}>
+          <AreaChart data={data} margin={{ top: 15, right: 0, left: -20, bottom: 0 }}>
             <defs>
               <linearGradient id="colorTemp" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#f97316" stopOpacity={0.6}/>
                 <stop offset="95%" stopColor="#f97316" stopOpacity={0}/>
               </linearGradient>
             </defs>
-            <XAxis dataKey="time" hide />
-            <YAxis domain={['dataMin - 1', 'dataMax + 1']} hide />
-            <Tooltip 
-                contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: 'none', borderRadius: '8px', color: '#fff' }}
-                itemStyle={{ color: '#fb923c' }}
-                formatter={(value: number) => [`${value.toFixed(1)}°C`, 'Temp']}
+            <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgba(255,255,255,0.1)" />
+            <XAxis 
+              dataKey="time" 
+              interval={1} // Show every 2nd label approx (2h)
+              tick={{fill: 'rgba(255,255,255,0.4)', fontSize: 10}} 
+              tickLine={false}
+              axisLine={false}
+              height={15}
             />
+            <YAxis domain={['auto', 'auto']} tick={{fill: 'rgba(255,255,255,0.3)', fontSize: 10}} tickLine={false} axisLine={false} />
+            <Tooltip 
+                contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '12px' }}
+                itemStyle={{ padding: 0 }}
+                labelStyle={{ marginBottom: '4px', color: '#aaa' }}
+                formatter={(value: number) => [value.toFixed(1), '']}
+            />
+            <Legend verticalAlign="top" height={20} iconSize={8} wrapperStyle={{ fontSize: '10px', right: 0, top: 0, color: '#aaa' }}/>
+            
+            {/* Outdoor Temp (Line) */}
+            <Area 
+                type="monotone" 
+                dataKey="outdoorTemp" 
+                name="Buiten"
+                stroke="#60a5fa" 
+                strokeWidth={2}
+                fill="transparent" 
+                dot={false}
+            />
+            
+            {/* Indoor Temp (Area) */}
             <Area 
                 type="monotone" 
                 dataKey="temp" 
+                name="Binnen"
                 stroke="#f97316" 
                 strokeWidth={3}
                 fillOpacity={1} 
@@ -40,23 +64,36 @@ export const HistoryCharts: React.FC<HistoryChartsProps> = ({ data }) => {
       </div>
 
       {/* Humidity Chart */}
-      <div className="h-16 relative opacity-80">
-        <h4 className="absolute top-0 left-2 text-xs font-semibold text-blue-200/80 z-10 drop-shadow-md">Luchtvochtigheid (24u)</h4>
+      <div className="h-1/3 relative opacity-90 min-h-0">
+        <h4 className="absolute top-0 left-2 text-xs font-semibold text-blue-200/80 z-10 drop-shadow-md">Vochtigheid (%)</h4>
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data}>
+          <AreaChart data={data} margin={{ top: 15, right: 0, left: -20, bottom: 0 }}>
             <defs>
               <linearGradient id="colorHum" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.5}/>
+                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.4}/>
                 <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
               </linearGradient>
             </defs>
+            <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgba(255,255,255,0.1)" />
             <XAxis dataKey="time" hide />
-            <YAxis domain={[0, 100]} hide />
+            <YAxis domain={[0, 100]} tick={{fill: 'rgba(255,255,255,0.3)', fontSize: 10}} tickLine={false} axisLine={false} />
             <Tooltip 
-                 contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: 'none', borderRadius: '8px', color: '#fff' }}
-                 itemStyle={{ color: '#60a5fa' }}
-                 formatter={(value: number) => [`${value.toFixed(0)}%`, 'Vocht']}
+                 contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '12px' }}
+                 formatter={(value: number) => [value.toFixed(0), '']}
             />
+            
+            {/* Outdoor Hum (Line) */}
+             <Area 
+                type="monotone" 
+                dataKey="outdoorHumidity" 
+                stroke="#94a3b8" 
+                strokeWidth={1}
+                strokeDasharray="4 4"
+                fill="transparent" 
+                dot={false}
+            />
+
+            {/* Indoor Hum (Area) */}
             <Area 
                 type="monotone" 
                 dataKey="humidity" 

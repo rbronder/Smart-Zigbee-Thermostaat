@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Sun, Battery, Wifi, Clock, Layers, Move, Maximize, ArrowUpDown, GripHorizontal, Palette, LayoutDashboard, CalendarClock, Settings2, ThermometerSnowflake, Wrench, Snowflake, Moon, Link, Database, Info, Activity } from 'lucide-react';
+import { X, Sun, Battery, Wifi, Clock, Layers, Move, Maximize, ArrowUpDown, GripHorizontal, Palette, LayoutDashboard, CalendarClock, Settings2, ThermometerSnowflake, Wrench, Snowflake, Moon, Link, Database, Info, Activity, Droplets } from 'lucide-react';
 import { ScheduleTab } from './ScheduleSettings';
 import { ScheduleItem, VacationSettings, HaSettings } from '../types';
 
@@ -458,20 +458,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
                   </div>
 
-                  <div className="pt-2 border-t border-white/5">
-                     <label className="block text-xs font-medium text-gray-400 mb-1 flex items-center gap-2">
-                        <Sun size={12}/> Buitentemperatuur Sensor ID (Optioneel)
-                     </label>
-                     <input 
-                        type="text" 
-                        placeholder="sensor.buiten_temperatuur (laat leeg voor internet weer)"
-                        value={haSettings.outdoorTempEntityId || ''}
-                        onChange={(e) => setHaSettings({...haSettings, outdoorTempEntityId: e.target.value})}
-                        className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white focus:border-cyan-500 outline-none"
-                     />
-                     <p className="text-[10px] text-gray-500 mt-1">
-                        Indien ingevuld, wordt deze waarde gebruikt in plaats van de weer-API.
-                     </p>
+                  <div className="pt-2 border-t border-white/5 space-y-4">
+                     <div>
+                       <label className="block text-xs font-medium text-gray-400 mb-1 flex items-center gap-2">
+                          <Sun size={12}/> Buitentemperatuur Sensor ID (Optioneel)
+                       </label>
+                       <input 
+                          type="text" 
+                          placeholder="sensor.buiten_temperatuur"
+                          value={haSettings.outdoorTempEntityId || ''}
+                          onChange={(e) => setHaSettings({...haSettings, outdoorTempEntityId: e.target.value})}
+                          className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white focus:border-cyan-500 outline-none"
+                       />
+                     </div>
+                     <div>
+                       <label className="block text-xs font-medium text-gray-400 mb-1 flex items-center gap-2">
+                          <Droplets size={12}/> Buiten Luchtvochtigheid ID (Optioneel)
+                       </label>
+                       <input 
+                          type="text" 
+                          placeholder="sensor.buiten_vocht"
+                          value={haSettings.outdoorHumidityEntityId || ''}
+                          onChange={(e) => setHaSettings({...haSettings, outdoorHumidityEntityId: e.target.value})}
+                          className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white focus:border-cyan-500 outline-none"
+                       />
+                       <p className="text-[10px] text-gray-500 mt-1">
+                          Indien ingevuld, worden deze waardes gebruikt in grafieken en achtergrond logica.
+                       </p>
+                     </div>
                   </div>
 
                 </div>

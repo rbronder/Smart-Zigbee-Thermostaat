@@ -2,8 +2,10 @@ import { HistoryDataPoint, ScheduleItem } from './types';
 
 export const MOCK_HISTORY_DATA: HistoryDataPoint[] = Array.from({ length: 24 }, (_, i) => ({
   time: `${i}:00`,
-  temp: 18 + Math.random() * 4 - 2 + (i > 8 && i < 22 ? 2 : 0), // Warmer during day
+  temp: 18 + Math.random() * 4 - 2 + (i > 8 && i < 22 ? 2 : 0),
   humidity: 45 + Math.random() * 10,
+  outdoorTemp: 10 + Math.random() * 5 - 2,
+  outdoorHumidity: 60 + Math.random() * 20,
 }));
 
 export const DEFAULT_SCHEDULE: ScheduleItem[] = [
@@ -23,5 +25,8 @@ export const BACKGROUND_IMAGES = {
   sunny: "https://images.unsplash.com/photo-1622396481328-9b1b78cdd9fd?q=80&w=1974&auto=format&fit=crop",
   cloudy: "https://images.unsplash.com/photo-1534088568595-a066f410bcda?q=80&w=1951&auto=format&fit=crop",
   rain: "https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?q=80&w=1974&auto=format&fit=crop",
+  snow: "https://images.unsplash.com/photo-1483664852095-d6cc6870702d?q=80&w=2070&auto=format&fit=crop",
+  fog: "https://images.unsplash.com/photo-1487621167305-5d248087c724?q=80&w=1932&auto=format&fit=crop",
+  thunder: "https://images.unsplash.com/photo-1605727216801-e27ce1d0cc28?q=80&w=2071&auto=format&fit=crop",
   night: "https://images.unsplash.com/photo-1472552944129-b035e9ea536e?q=80&w=1974&auto=format&fit=crop",
 };

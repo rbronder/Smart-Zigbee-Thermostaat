@@ -364,7 +364,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                      <span className="font-mono text-white text-lg w-16 text-right">{humidifierCalibration > 0 ? '+' : ''}{humidifierCalibration}%</span>
                   </div>
                   <p className="text-xs text-gray-500 mt-2">
-                    Logica: AAN > 60 min, UIT > 20 min. Actief bij doel - hysteresis. Nooit aan tijdens 'Slapen'.
+                    Logica: AAN &gt; 60 min, UIT &gt; 20 min. Actief bij doel - hysteresis. Nooit aan tijdens 'Slapen'.
                   </p>
                </div>
 

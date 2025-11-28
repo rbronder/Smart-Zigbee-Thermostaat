@@ -17,7 +17,8 @@ import {
   Droplets,
   Umbrella,
   WifiOff,
-  Target
+  Target,
+  Zap
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -28,10 +29,16 @@ const App: React.FC = () => {
   const [mode, setMode] = useState<ThermostatMode>(ThermostatMode.HOME);
   const [weather, setWeather] = useState<WeatherState>({ condition: 'cloudy', temp: 12 });
   const [isHeating, setIsHeating] = useState<boolean>(false);
+  const [isHumidifierOn, setIsHumidifierOn] = useState<boolean>(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [humidityPopupOpen, setHumidityPopupOpen] = useState(false);
   
   // Logic Debug Info
-  const [debugLogic, setDebugLogic] = useState<{lastHeat: string, reason: string}>({ lastHeat: 'Nog niet actief', reason: 'Starten...' });
+  const [debugLogic, setDebugLogic] = useState<{lastHeat: string, reason: string, humidifierReason: string}>({ 
+    lastHeat: 'Nog niet actief', 
+    reason: 'Starten...', 
+    humidifierReason: 'Starten...' 
+  });
 
   // Display State (View vs Edit Mode)
   const [isAdjusting, setIsAdjusting] = useState(false);
@@ -42,7 +49,7 @@ const App: React.FC = () => {
   const [batteryLevel, setBatteryLevel] = useState<number | null>(null);
   const [historyData, setHistoryData] = useState<HistoryDataPoint[]>(MOCK_HISTORY_DATA);
   
-  // Maintenance State (Persisted)
+  // Persistence for timers
   const [lastMaintenanceTime, setLastMaintenanceTime] = useState<number>(() => {
       const saved = localStorage.getItem('lastMaintenanceTime');
       return saved ? parseInt(saved) : Date.now();
@@ -51,15 +58,20 @@ const App: React.FC = () => {
     const saved = localStorage.getItem('lastHeatActiveTime');
     return saved ? parseInt(saved) : Date.now();
   });
+  const [lastHumidifierStartTime, setLastHumidifierStartTime] = useState<number>(() => {
+    const saved = localStorage.getItem('lastHumidifierStartTime');
+    return saved ? parseInt(saved) : 0;
+  });
+  const [lastHumidifierStopTime, setLastHumidifierStopTime] = useState<number>(() => {
+    const saved = localStorage.getItem('lastHumidifierStopTime');
+    return saved ? parseInt(saved) : 0;
+  });
 
-  useEffect(() => {
-    localStorage.setItem('lastMaintenanceTime', lastMaintenanceTime.toString());
-  }, [lastMaintenanceTime]);
+  useEffect(() => { localStorage.setItem('lastMaintenanceTime', lastMaintenanceTime.toString()); }, [lastMaintenanceTime]);
+  useEffect(() => { localStorage.setItem('lastHeatActiveTime', lastHeatActiveTime.toString()); }, [lastHeatActiveTime]);
+  useEffect(() => { localStorage.setItem('lastHumidifierStartTime', lastHumidifierStartTime.toString()); }, [lastHumidifierStartTime]);
+  useEffect(() => { localStorage.setItem('lastHumidifierStopTime', lastHumidifierStopTime.toString()); }, [lastHumidifierStopTime]);
 
-  useEffect(() => {
-    localStorage.setItem('lastHeatActiveTime', lastHeatActiveTime.toString());
-  }, [lastHeatActiveTime]);
-  
   // Schedule & Vacation
   const [schedule, setSchedule] = useState<ScheduleItem[]>(DEFAULT_SCHEDULE);
   const [vacationSettings, setVacationSettings] = useState<VacationSettings>({
@@ -88,6 +100,11 @@ const App: React.FC = () => {
   const [summerTemp, setSummerTemp] = useState(15.0);
   const [maintenanceIntervalDays, setMaintenanceIntervalDays] = useState(7);
   const [maintenanceDurationMins, setMaintenanceDurationMins] = useState(5);
+  
+  // Humidifier Settings
+  const [humidifierTarget, setHumidifierTarget] = useState(50);
+  const [humidifierHysteresis, setHumidifierHysteresis] = useState(5);
+  const [humidifierCalibration, setHumidifierCalibration] = useState(0);
 
   // HA Settings
   const [haSettings, setHaSettings] = useState<HaSettings>(() => {
@@ -100,7 +117,8 @@ const App: React.FC = () => {
       switchEntityId: '',
       batteryEntityId: '',
       outdoorTempEntityId: '',
-      outdoorHumidityEntityId: ''
+      outdoorHumidityEntityId: '',
+      humidifierEntityId: ''
     };
   });
 
@@ -116,6 +134,7 @@ const App: React.FC = () => {
 
   // Derived State
   const currentCorrectedTemp = currentRawTemp + tempCalibration;
+  const currentCorrectedHumidity = humidity + humidifierCalibration;
   
   // Display Logic: 
   // If Adjusting -> Big Number = Target, Small = Current
@@ -171,11 +190,6 @@ const App: React.FC = () => {
               }
               return lastVal;
           }
-
-          // Use the last valid value from previous slot if current is NaN (gap filling), 
-          // BUT only if we have passed the start of data.
-          // For visualization, Recharts connects lines if defined properly.
-          // Better: Get raw value.
           
           const tempVal = getLastVal(tempData);
           const humVal = getLastVal(humData);
@@ -244,10 +258,14 @@ const App: React.FC = () => {
         if (haSettings.switchEntityId && entities[haSettings.switchEntityId]) {
           const state = entities[haSettings.switchEntityId].state;
           setIsHeating(state === 'on');
-          
           if (state === 'on') {
             setLastHeatActiveTime(Date.now());
           }
+        }
+
+        // Update Humidifier State
+        if (haSettings.humidifierEntityId && entities[haSettings.humidifierEntityId]) {
+            setIsHumidifierOn(entities[haSettings.humidifierEntityId].state === 'on');
         }
       });
 
@@ -267,7 +285,7 @@ const App: React.FC = () => {
     };
   }, [haSettings]);
 
-  // Weather API Integration (Fallback if no outdoor sensor, plus Condition logic)
+  // Weather API Integration
   useEffect(() => {
     const fetchWeather = async (lat: number, lon: number) => {
       try {
@@ -280,7 +298,6 @@ const App: React.FC = () => {
           const { weathercode, temperature, is_day } = data.current_weather;
           let condition: WeatherState['condition'] = 'cloudy';
           
-          // Map WMO codes to our keys
           if (is_day === 0) {
             condition = 'night';
           } else {
@@ -293,7 +310,6 @@ const App: React.FC = () => {
              else condition = 'cloudy';
           }
 
-          // Update state. Only update temp if NOT using HA sensor.
           setWeather(prev => ({
             condition,
             temp: haSettings.outdoorTempEntityId ? prev.temp : temperature
@@ -317,7 +333,6 @@ const App: React.FC = () => {
 
     runFetch();
     const interval = setInterval(runFetch, 1800000); // 30 mins
-
     return () => clearInterval(interval);
   }, [haSettings.outdoorTempEntityId]);
 
@@ -385,13 +400,14 @@ const App: React.FC = () => {
     }
   }, [vacationSettings]);
 
-  // Heating Control Loop
+  // Main Control Loop (Heat + Humidifier)
   useEffect(() => {
     const interval = setInterval(() => {
-        const current = currentRawTemp + tempCalibration;
-        const activeTarget = summerMode ? summerTemp : targetTemp;
         const now = Date.now();
-
+        
+        // --- Heating Logic ---
+        const currentTemp = currentRawTemp + tempCalibration;
+        const activeTarget = summerMode ? summerTemp : targetTemp;
         const msInDay = 24 * 60 * 60 * 1000;
         const maintenanceNeeded = (now - lastHeatActiveTime) > (maintenanceIntervalDays * msInDay);
         let maintenanceActive = false;
@@ -409,25 +425,20 @@ const App: React.FC = () => {
         }
 
         let shouldHeat = isHeating;
-        let reason = "";
+        let heatReason = "";
 
         if (maintenanceActive) {
             shouldHeat = true;
-            reason = `Onderhoudsmodus actief (${maintenanceDurationMins} min)`;
-        } else if (current < activeTarget - hysteresis) {
+            heatReason = `Onderhoudsmodus actief (${maintenanceDurationMins} min)`;
+        } else if (currentTemp < activeTarget - hysteresis) {
             shouldHeat = true;
-            reason = `Temperatuur te laag (${current.toFixed(1)} < ${activeTarget - hysteresis})`;
-        } else if (current > activeTarget + hysteresis) {
+            heatReason = `Temperatuur te laag (${currentTemp.toFixed(1)} < ${activeTarget - hysteresis})`;
+        } else if (currentTemp > activeTarget + hysteresis) {
             shouldHeat = false;
-            reason = `Temperatuur bereikt (${current.toFixed(1)} > ${activeTarget + hysteresis})`;
+            heatReason = `Temperatuur bereikt (${currentTemp.toFixed(1)} > ${activeTarget + hysteresis})`;
         } else {
-            reason = isHeating ? "Verwarmen (Binnen marge)" : "Stand-by (Binnen marge)";
+            heatReason = isHeating ? "Verwarmen (Binnen marge)" : "Stand-by (Binnen marge)";
         }
-
-        setDebugLogic({
-            lastHeat: new Date(lastHeatActiveTime).toLocaleString('nl-NL'),
-            reason: reason
-        });
 
         if (haConnected && haSettings.switchEntityId) {
              if (shouldHeat !== isHeating) {
@@ -435,21 +446,98 @@ const App: React.FC = () => {
              }
         } else if (!haConnected) {
             // Sim logic
-            if (shouldHeat) {
-                setCurrentRawTemp(prev => Math.min(prev + 0.05, activeTarget + 1)); 
-            } else {
-                setCurrentRawTemp(prev => Math.max(prev - 0.05, 15));
-            }
+            if (shouldHeat) setCurrentRawTemp(prev => Math.min(prev + 0.05, activeTarget + 1)); 
+            else setCurrentRawTemp(prev => Math.max(prev - 0.05, 15));
             setIsHeating(shouldHeat);
             if (shouldHeat) setLastHeatActiveTime(Date.now());
         }
+
+        // --- Humidifier Logic ---
+        let shouldHumidify = isHumidifierOn;
+        let humReason = "";
+        
+        const MIN_RUN_TIME_MS = 60 * 60 * 1000; // 60 mins on
+        const MIN_REST_TIME_MS = 20 * 60 * 1000; // 20 mins off
+        const curHum = humidity + humidifierCalibration;
+        
+        // 1. Safety Check: Sleep Mode = OFF
+        if (mode === ThermostatMode.SLEEP) {
+             shouldHumidify = false;
+             humReason = "Slaapmodus actief";
+        } else {
+             // 2. Timer Protection
+             const timeSinceStart = now - lastHumidifierStartTime;
+             const timeSinceStop = now - lastHumidifierStopTime;
+             
+             if (isHumidifierOn) {
+                 // Already running. Must run for at least MIN_RUN_TIME
+                 if (timeSinceStart < MIN_RUN_TIME_MS) {
+                     shouldHumidify = true;
+                     humReason = `Minimale draaitijd (${Math.ceil((MIN_RUN_TIME_MS - timeSinceStart)/60000)}m resterend)`;
+                 } else {
+                     // Can turn off if target reached
+                     if (curHum > humidifierTarget + humidifierHysteresis) {
+                         shouldHumidify = false;
+                         humReason = `Doel bereikt (${curHum} > ${humidifierTarget + humidifierHysteresis})`;
+                     } else {
+                         shouldHumidify = true;
+                         humReason = "Bevochtigen...";
+                     }
+                 }
+             } else {
+                 // Currently off. Must rest for at least MIN_REST_TIME
+                 if (timeSinceStop < MIN_REST_TIME_MS) {
+                     shouldHumidify = false;
+                     humReason = `Minimale rusttijd (${Math.ceil((MIN_REST_TIME_MS - timeSinceStop)/60000)}m resterend)`;
+                 } else {
+                     // Can turn on if needed
+                     if (curHum < humidifierTarget - humidifierHysteresis) {
+                         shouldHumidify = true;
+                         humReason = `Te droog (${curHum} < ${humidifierTarget - humidifierHysteresis})`;
+                     } else {
+                         shouldHumidify = false;
+                         humReason = "Vochtigheid OK";
+                     }
+                 }
+             }
+        }
+
+        // Update Humidifier
+        if (haConnected && haSettings.humidifierEntityId) {
+             if (shouldHumidify !== isHumidifierOn) {
+                 haService.setSwitch(haSettings.humidifierEntityId, shouldHumidify);
+                 // Update timers for tracking
+                 if (shouldHumidify) setLastHumidifierStartTime(now);
+                 else setLastHumidifierStopTime(now);
+                 // Optimistic update
+                 setIsHumidifierOn(shouldHumidify);
+             }
+        } else if (!haConnected) {
+             // Sim logic
+             if (shouldHumidify !== isHumidifierOn) {
+                 if (shouldHumidify) setLastHumidifierStartTime(now);
+                 else setLastHumidifierStopTime(now);
+                 setIsHumidifierOn(shouldHumidify);
+             }
+             // Sim effect
+             if (shouldHumidify) setHumidity(h => Math.min(h + 0.1, 100));
+             else setHumidity(h => Math.max(h - 0.05, 30));
+        }
+
+        setDebugLogic({
+            lastHeat: new Date(lastHeatActiveTime).toLocaleString('nl-NL'),
+            reason: heatReason,
+            humidifierReason: humReason
+        });
+
     }, 2000);
 
     return () => clearInterval(interval);
   }, [
     targetTemp, currentRawTemp, tempCalibration, hysteresis, summerMode, summerTemp, 
     isHeating, haConnected, haSettings, maintenanceIntervalDays, maintenanceDurationMins, 
-    lastHeatActiveTime, lastMaintenanceTime
+    lastHeatActiveTime, lastMaintenanceTime,
+    isHumidifierOn, humidity, humidifierCalibration, humidifierTarget, humidifierHysteresis, mode, lastHumidifierStartTime, lastHumidifierStopTime
   ]);
 
   // Temp Interaction Handlers
@@ -457,7 +545,6 @@ const App: React.FC = () => {
      if (summerMode) return;
      setIsAdjusting(true);
      if (adjustTimeoutRef.current) clearTimeout(adjustTimeoutRef.current);
-     
      adjustTimeoutRef.current = setTimeout(() => {
          setIsAdjusting(false);
      }, 3000);
@@ -626,7 +713,7 @@ const App: React.FC = () => {
                                     )}
                                 </div>
                                 
-                                <div className="flex gap-3 md:gap-6 mt-2 md:mt-4">
+                                <div className="flex gap-3 md:gap-6 mt-2 md:mt-4 pointer-events-auto">
                                     {/* Small Pill - Switches content */}
                                     <div className={`px-4 py-2 rounded-xl flex items-center gap-2 backdrop-blur-md border shadow-lg transition-colors duration-300 ${isAdjusting ? 'border-orange-500/50 bg-orange-500/10' : 'border-white/10 bg-white/5'}`} >
                                         {isAdjusting ? <Target size={16} className="text-orange-400"/> : <span className="text-xs text-gray-300 uppercase font-bold tracking-wider">{smallNumberLabel}</span>}
@@ -634,10 +721,15 @@ const App: React.FC = () => {
                                             {smallNumberValue.toFixed(1)}°
                                         </span>
                                     </div>
-                                    <div className="px-4 py-2 rounded-xl flex items-center gap-2 backdrop-blur-md border border-blue-500/30 shadow-lg" style={{ backgroundColor: `rgba(59, 130, 246, ${Math.max(0.1, boxTransparency / 300)})` }}>
-                                        <Droplets size={20} className="text-blue-400 fill-blue-400/20" />
-                                        <span className="text-2xl font-bold text-blue-100">{humidity}%</span>
-                                    </div>
+                                    <button 
+                                      onMouseDown={(e) => e.stopPropagation()}
+                                      onClick={() => setHumidityPopupOpen(true)}
+                                      className="px-4 py-2 rounded-xl flex items-center gap-2 backdrop-blur-md border border-blue-500/30 shadow-lg hover:bg-blue-500/10 transition-colors" 
+                                      style={{ backgroundColor: `rgba(59, 130, 246, ${Math.max(0.1, boxTransparency / 300)})` }}
+                                    >
+                                        <Droplets size={20} className={`text-blue-400 fill-blue-400/20 ${isHumidifierOn ? 'animate-pulse' : ''}`} />
+                                        <span className="text-2xl font-bold text-blue-100">{currentCorrectedHumidity.toFixed(0)}%</span>
+                                    </button>
                                 </div>
                             </div>
 
@@ -672,6 +764,34 @@ const App: React.FC = () => {
         timeoutSeconds={dimTimeout}
         onSettingsClick={() => setSettingsOpen(true)} 
       />
+
+      {/* Humidity Popup */}
+      {humidityPopupOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setHumidityPopupOpen(false)}>
+           <div className="bg-gray-900 border border-blue-500/30 rounded-2xl p-6 w-80 shadow-2xl transform scale-100 transition-all" onClick={(e) => e.stopPropagation()}>
+              <h3 className="text-lg font-bold text-blue-200 mb-4 flex items-center gap-2"><Droplets /> Luchtvochtigheid</h3>
+              <div className="flex items-center justify-between mb-2">
+                 <span className="text-gray-400 text-sm">Doel:</span>
+                 <span className="text-3xl font-bold text-blue-400">{humidifierTarget}%</span>
+              </div>
+              <input 
+                  type="range" min="30" max="80" step="5" value={humidifierTarget} 
+                  onChange={(e) => setHumidifierTarget(Number(e.target.value))}
+                  className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500 mb-4"
+              />
+              <div className="flex justify-between items-center text-xs text-gray-500 mb-6">
+                 <span>Huidig: {currentCorrectedHumidity.toFixed(0)}%</span>
+                 <span>Status: {isHumidifierOn ? 'Aan' : 'Uit'}</span>
+              </div>
+              <button 
+                onClick={() => setHumidityPopupOpen(false)}
+                className="w-full py-2 bg-blue-600 rounded-lg font-medium hover:bg-blue-500 transition-colors"
+              >
+                Sluiten
+              </button>
+           </div>
+        </div>
+      )}
       
       <SettingsModal 
         isOpen={settingsOpen}
@@ -708,6 +828,10 @@ const App: React.FC = () => {
         setMaintenanceIntervalDays={setMaintenanceIntervalDays}
         maintenanceDurationMins={maintenanceDurationMins}
         setMaintenanceDurationMins={setMaintenanceDurationMins}
+        humidifierHysteresis={humidifierHysteresis}
+        setHumidifierHysteresis={setHumidifierHysteresis}
+        humidifierCalibration={humidifierCalibration}
+        setHumidifierCalibration={setHumidifierCalibration}
         haSettings={haSettings}
         setHaSettings={setHaSettings}
         haConnected={haConnected}
@@ -715,6 +839,7 @@ const App: React.FC = () => {
         debugInfo={{
             lastHeat: new Date(lastHeatActiveTime).toLocaleString('nl-NL'),
             reason: debugLogic.reason,
+            humidifierReason: debugLogic.humidifierReason,
             activeTarget: summerMode ? summerTemp : targetTemp,
             currentRaw: currentRawTemp
         }}

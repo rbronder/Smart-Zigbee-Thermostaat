@@ -41,7 +41,8 @@ export interface HaSettings {
   switchEntityId: string;
   batteryEntityId: string;
   outdoorTempEntityId: string;
-  outdoorHumidityEntityId: string; // New field
+  outdoorHumidityEntityId: string;
+  humidifierEntityId: string; // New field for smart plug
 }
 
 export interface HaEntityState {

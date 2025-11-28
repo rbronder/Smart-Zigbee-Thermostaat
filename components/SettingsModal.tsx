@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Sun, Battery, Wifi, Clock, Layers, Move, Maximize, ArrowUpDown, GripHorizontal, Palette, LayoutDashboard, CalendarClock, Settings2, ThermometerSnowflake, Wrench, Snowflake, Moon, Link, Database, Info, Activity, Droplets } from 'lucide-react';
+import { X, Sun, Battery, Wifi, Clock, Layers, Move, Maximize, ArrowUpDown, GripHorizontal, Palette, LayoutDashboard, CalendarClock, Settings2, ThermometerSnowflake, Wrench, Snowflake, Moon, Link, Database, Info, Activity, Droplets, Zap } from 'lucide-react';
 import { ScheduleTab } from './ScheduleSettings';
 import { ScheduleItem, VacationSettings, HaSettings } from '../types';
 
@@ -42,6 +42,11 @@ interface SettingsModalProps {
   setMaintenanceIntervalDays: (val: number) => void;
   maintenanceDurationMins: number;
   setMaintenanceDurationMins: (val: number) => void;
+  // Humidifier Settings
+  humidifierHysteresis: number;
+  setHumidifierHysteresis: (val: number) => void;
+  humidifierCalibration: number;
+  setHumidifierCalibration: (val: number) => void;
   // HA Connection
   haSettings: HaSettings;
   setHaSettings: (val: HaSettings) => void;
@@ -54,6 +59,7 @@ interface SettingsModalProps {
     reason: string;
     activeTarget: number;
     currentRaw: number;
+    humidifierReason?: string;
   };
 }
 
@@ -76,6 +82,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   summerTemp, setSummerTemp,
   maintenanceIntervalDays, setMaintenanceIntervalDays,
   maintenanceDurationMins, setMaintenanceDurationMins,
+  humidifierHysteresis, setHumidifierHysteresis,
+  humidifierCalibration, setHumidifierCalibration,
   haSettings, setHaSettings,
   haConnected,
   batteryLevel,
@@ -277,7 +285,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       <span>{debugInfo?.activeTarget.toFixed(1)} °C</span>
                     </div>
                     <div className="mt-2 p-2 bg-gray-800 rounded text-blue-200">
-                      <strong>Logica:</strong> {debugInfo?.reason || 'Wachten op data...'}
+                      <strong>CV Logica:</strong> {debugInfo?.reason || 'Wachten op data...'}
+                    </div>
+                     <div className="mt-1 p-2 bg-gray-800 rounded text-cyan-200">
+                      <strong>Luchtbevochtiger:</strong> {debugInfo?.humidifierReason || '-'}
                     </div>
                   </div>
                </div>
@@ -319,6 +330,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                      </div>
                      <span className="font-mono text-white text-lg w-16 text-right">{tempCalibration > 0 ? '+' : ''}{tempCalibration.toFixed(1)}</span>
                   </div>
+               </div>
+
+                {/* Humidifier Settings */}
+               <div className="bg-gray-800/50 p-4 rounded-xl border border-white/5">
+                  <h4 className="text-white font-medium mb-4 flex items-center gap-2">
+                    <Droplets size={18} className="text-cyan-400"/> Luchtbevochtiger
+                  </h4>
+                  
+                  {/* Hysteresis */}
+                  <div className="flex items-center gap-4 mb-4">
+                     <div className="flex-1">
+                        <label className="text-xs text-gray-400 mb-1 block">Hysteresis (Marge)</label>
+                        <input 
+                          type="range" min="1" max="10" step="1" value={humidifierHysteresis} 
+                          onChange={(e) => setHumidifierHysteresis(parseFloat(e.target.value))}
+                          className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                        />
+                     </div>
+                     <span className="font-mono text-white text-lg w-16 text-right">±{humidifierHysteresis}%</span>
+                  </div>
+
+                  {/* Calibration */}
+                  <div className="flex items-center gap-4">
+                     <div className="flex-1">
+                        <label className="text-xs text-gray-400 mb-1 block">Vochtigheid Correctie</label>
+                        <input 
+                          type="range" min="-10" max="10" step="1" value={humidifierCalibration} 
+                          onChange={(e) => setHumidifierCalibration(parseFloat(e.target.value))}
+                          className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                        />
+                     </div>
+                     <span className="font-mono text-white text-lg w-16 text-right">{humidifierCalibration > 0 ? '+' : ''}{humidifierCalibration}%</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Logica: AAN > 60 min, UIT > 20 min. Actief bij doel - hysteresis. Nooit aan tijdens 'Slapen'.
+                  </p>
                </div>
 
                {/* Summer Mode */}
@@ -453,6 +500,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         placeholder="sensor.temp_batterij"
                         value={haSettings.batteryEntityId || ''}
                         onChange={(e) => setHaSettings({...haSettings, batteryEntityId: e.target.value})}
+                        className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white focus:border-cyan-500 outline-none"
+                        />
+                    </div>
+
+                    <div className="md:col-span-2">
+                        <label className="block text-xs font-medium text-gray-400 mb-1 flex items-center gap-2">
+                           <Zap size={12} className="text-cyan-400"/> Luchtbevochtiger Schakelaar ID
+                        </label>
+                        <input 
+                        type="text" 
+                        placeholder="switch.smart_plug_bevochtiger"
+                        value={haSettings.humidifierEntityId || ''}
+                        onChange={(e) => setHaSettings({...haSettings, humidifierEntityId: e.target.value})}
                         className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-white focus:border-cyan-500 outline-none"
                         />
                     </div>
